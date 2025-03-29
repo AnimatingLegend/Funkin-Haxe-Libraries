@@ -20,7 +20,7 @@ class JSONPatch {
         if (data == null || patch == null) return null;
         if (patch.length == 0) return data;
         
-        var result:JSONData = data.copy();
+        var result:JSONData = cast data.copy(); // Explicitly cast the result of data.copy()
         
         var firstOperation = true;
 
@@ -41,50 +41,113 @@ class JSONPatch {
     public static function applyOperation(data:JSONData, operation:JSONData):JSONData {
         if (operation == null) return data;
 
-        var result = data.copy();
+        var result:JSONData = cast data.copy(); // Explicitly cast the result of data.copy()
+        var op = operation.get('op');
 
-        switch (operation.get('op')) {
-            case "add":
-                result = applyOperation_add(result, operation.get('path'), operation.get('value', NoValue));
-            case "remove":
-                result = applyOperation_remove(result, operation.get('path'));
-            case "replace":
-                result = applyOperation_replace(result, operation.get('path'), operation.get('value', NoValue));
-            case "move":
-                result = applyOperation_move(result, operation.get('from'), operation.get('path'));
-            case "copy":
-                result = applyOperation_copy(result, operation.get('from'), operation.get('path'));
-            case "test":
-                result = applyOperation_test(result, operation.get('path'), operation.get('value', NoValue));
-            default:
-                throw 'Unsupported operation "${operation.get('op')}", expected one of "test", "add", "replace", "remove", "move", "copy"';
+        if (op == "add") {
+            var value:Dynamic = getOperationValue(operation, 'value');
+            result = applyOperation_add(result, operation.get('path'), value);
+        } else if (op == "remove") {
+            result = applyOperation_remove(result, operation.get('path'));
+        } else if (op == "replace") {
+            var replaceValue:Dynamic = getOperationValue(operation, 'value');
+            result = applyOperation_replace(result, operation.get('path'), replaceValue);
+        } else if (op == "move") {
+            result = applyOperation_move(result, operation.get('from'), operation.get('path'));
+        } else if (op == "copy") {
+            result = applyOperation_copy(result, operation.get('from'), operation.get('path'));
+        } else if (op == "test") {
+            var testValue:Dynamic = getOperationValue(operation, 'value');
+            result = applyOperation_test(result, operation.get('path'), testValue);
+        } else {
+            throw 'Unsupported operation "$op", expected one of "test", "add", "replace", "remove", "move", "copy"';
         }
 
         return result;
     }
 
+    static function getOperationValue(operation:JSONData, key:String):Dynamic {
+        // Helper function to get the value of an operation or return NoValue
+        if (operation.exists(key)) {
+            return operation.get(key);
+        } else {
+            return NoValue;
+        }
+    }
+
+    static function getParentPath(path:String):String {
+        if (path == null || path == "") throw 'Invalid path';
+        var lastSlash = path.lastIndexOf('/');
+        if (lastSlash == -1) return "";
+        return path.substr(0, lastSlash);
+    }
+
+    static function getLastPathSegment(path:String):String {
+        if (path == null || path == "") throw 'Invalid path';
+        var lastSlash = path.lastIndexOf('/');
+        if (lastSlash == -1) return path;
+        return path.substr(lastSlash + 1);
+    }
+
+    static function resolve(data:Dynamic, path:String):Dynamic {
+        if (path == null || path == "") return data;
+        var segments = path.split('/');
+        var current = data;
+        for (segment in segments) {
+            if (segment == "") continue;
+            // Convert segment to Int if current is an array
+            if (segment == "-") {
+                if (Std.is(current, Array)) {
+                    current = current[current.length - 1];
+                } else {
+                    throw 'Invalid array index: $segment';
+                }
+            } else if (segment == "*") {
+                if (Std.is(current, Array)) {
+                    current = current;
+                } else {
+                    throw 'Invalid wildcard segment: $segment';
+                }
+            } else if (TypeUtil.isString(segment)) {
+                segment = StringTools.urlDecode(segment);
+            }
+
+            if (Std.is(current, Array)) {
+                var index = Std.parseInt(segment);
+                if (index == null) throw 'Invalid array index: $segment'; // Handle null case for Std.parseInt
+                current = current[index];
+            } else {
+                if (!Reflect.hasField(current, segment)) throw 'Invalid path segment: $segment';
+                current = Reflect.field(current, segment);
+            }
+        }
+        return current;
+    }
+
     static function applyOperation_add(data:JSONData, path:String, value:Dynamic):JSONData {
         if (path == null) throw 'path is required';
-        if (value == NoValue) throw 'value is required';
+        if (value == NoValue) throw 'value is required'; // Fix for NoValue.NoValue
 
         var targetPaths = parsePaths(path, data);
 
         for (targetPath in targetPaths) {
             try {
-                // Replace insertByPath with logic to add a value
-                JSONPointer.add(data, targetPath, value);
-            } catch (e) {
-                if ('$e'.contains('does not exist')) {
-                    throw 'add to a non-existent target';
-                } else if ('$e'.contains('is out of bounds')) {
-                    throw 'array index out of bounds';   
-                } else if ('$e'.contains('insert(): bad array index: ')) {
-                    var badIndex = '$e'.replace('insert(): bad array index: ', '');
-                    throw 'could not parse array index ${badIndex}';
+                var parentPath = getParentPath(targetPath);
+                var key = getLastPathSegment(targetPath);
+                var parent = resolve(data, parentPath);
+                if (parent == null) throw 'add to a non-existent target';
+
+                // Handle array indices
+                if (Std.is(parent, Array)) {
+                    var index = Std.parseInt(key);
+                    if (index == null) throw 'Invalid array index: $key'; // Ensure index is valid
+                    parent.insert(index, value);
                 } else {
-                    throw e;
+                    parent[key] = value;
                 }
-            }   
+            } catch (e) {
+                throw e;
+            }
         }
 
         return data;
@@ -96,10 +159,21 @@ class JSONPatch {
         var targetPaths = parsePaths(path, data);
 
         for (targetPath in targetPaths) {
-            if (!JSONPointer.exists(data, targetPath)) {
-                throw 'remove target ${targetPath} does not exist';
+            var parentPath = getParentPath(targetPath);
+            var key = getLastPathSegment(targetPath);
+            var parent = resolve(data, parentPath);
+            if (parent == null) throw 'remove target $targetPath does not exist';
+
+            // Handle array indices
+            if (Std.is(parent, Array)) {
+                var index = Std.parseInt(key);
+                if (index == null) throw 'Invalid array index: $key'; // Ensure index is valid
+                parent.splice(index, 1);
+            } else if (Reflect.hasField(parent, key)) {
+                Reflect.deleteField(parent, key);
+            } else {
+                throw 'remove target $targetPath does not exist';
             }
-            JSONPointer.remove(data, targetPath);
         }
 
         return data;
@@ -107,12 +181,24 @@ class JSONPatch {
 
     static function applyOperation_replace(data:JSONData, path:String, value:Dynamic):JSONData {
         if (path == null) throw 'path is required';
-        if (value == NoValue) throw 'value is required';
+        if (value == NoValue) throw 'value is required'; // Fix for NoValue.NoValue
 
         var targetPaths = parsePaths(path, data);
 
         for (targetPath in targetPaths) {
-            JSONPointer.replace(data, targetPath, value);
+            var parentPath = getParentPath(targetPath);
+            var key = getLastPathSegment(targetPath);
+            var parent = resolve(data, parentPath);
+            if (parent == null) throw 'replace target $targetPath does not exist';
+
+            // Handle array indices
+            if (Std.is(parent, Array)) {
+                var index = Std.parseInt(key);
+                if (index == null) throw 'Invalid array index: $key'; // Ensure index is valid
+                parent[index] = value;
+            } else {
+                parent[key] = value;
+            }
         }
 
         return data;
@@ -126,14 +212,37 @@ class JSONPatch {
         var targetPaths = parsePaths(path, data);
 
         for (targetFromPath in targetFromPaths) {
-            if (!JSONPointer.exists(data, targetFromPath)) {
-                throw 'no element at from path ${targetFromPath}';
+            var parentFromPath = getParentPath(targetFromPath);
+            var keyFrom = getLastPathSegment(targetFromPath);
+            var parentFrom = resolve(data, parentFromPath);
+            if (parentFrom == null) throw 'no element at from path $targetFromPath';
+
+            // Handle array indices
+            var value:Dynamic;
+            if (Std.is(parentFrom, Array)) {
+                var indexFrom = Std.parseInt(keyFrom);
+                if (indexFrom == null) throw 'Invalid array index: $keyFrom'; // Ensure index is valid
+                value = parentFrom[indexFrom];
+                parentFrom.splice(indexFrom, 1);
+            } else {
+                value = Reflect.field(parentFrom, keyFrom);
+                Reflect.deleteField(parentFrom, keyFrom);
             }
 
-            var value = JSONPointer.get(data, targetFromPath);
-            JSONPointer.remove(data, targetFromPath);
             for (targetPath in targetPaths) {
-                JSONPointer.add(data, targetPath, value);
+                var parentPath = getParentPath(targetPath);
+                var key = getLastPathSegment(targetPath);
+                var parent = resolve(data, parentPath);
+                if (parent == null) throw 'add to a non-existent target';
+
+                // Handle array indices
+                if (Std.is(parent, Array)) {
+                    var index = Std.parseInt(key);
+                    if (index == null) throw 'Invalid array index: $key'; // Ensure index is valid
+                    parent.insert(index, value);
+                } else {
+                    parent[key] = value;
+                }
             }
         }
 
@@ -148,13 +257,21 @@ class JSONPatch {
         var targetPaths = parsePaths(path, data);
 
         for (targetFromPath in targetFromPaths) {
-            if (!JSONPointer.exists(data, targetFromPath)) {
-                throw 'no element at from path ${targetFromPath}';
+            var parentFromPath = getParentPath(targetFromPath);
+            var keyFrom = getLastPathSegment(targetFromPath);
+            var parentFrom = resolve(data, parentFromPath);
+            if (parentFrom == null || !Reflect.hasField(parentFrom, keyFrom)) {
+                throw 'no element at from path $targetFromPath';
             }
 
-            var value = JSONPointer.get(data, targetFromPath);
+            var value = Reflect.field(parentFrom, keyFrom);
+
             for (targetPath in targetPaths) {
-                JSONPointer.add(data, targetPath, value);
+                var parentPath = getParentPath(targetPath);
+                var key = getLastPathSegment(targetPath);
+                var parent = resolve(data, parentPath);
+                if (parent == null) throw 'add to a non-existent target';
+                parent[key] = value;
             }
         }
 
@@ -163,31 +280,22 @@ class JSONPatch {
 
     static function applyOperation_test(data:JSONData, path:String, expected:Dynamic):JSONData {
         if (path == null) throw 'path is required';
-        if (expected == NoValue) throw 'value is required';
+        if (expected == NoValue) throw 'value is required'; // Fix for NoValue.NoValue
 
         var targetPaths = parsePaths(path, data);
 
         for (targetPath in targetPaths) {
-            try {
-                if (!JSONPointer.exists(data, targetPath)) {
-                    throw 'test failed, target not found';
-                }
-                
-                var actual = JSONPointer.get(data, targetPath);
-                
-                if (!thx.Dynamics.equals(actual, expected)) {
-                    throw 'test failed, values (${actual} =/= ${expected}) not equivalent';
-                }
-            } catch (e) {
-                if ('$e'.startsWith('test failed')) {
-                    throw e;
-                } else if ('$e'.contains('exists(): bad array index: ')) {
-                    var badIndex = '$e'.replace('exists(): bad array index: ', '');
-                    throw 'could not parse array index ${badIndex}';
-                } else {
-                    throw e;
-                }
-            }   
+            var parentPath = getParentPath(targetPath);
+            var key = getLastPathSegment(targetPath);
+            var parent = resolve(data, parentPath);
+            if (parent == null || !Reflect.hasField(parent, key)) {
+                throw 'test failed, target not found';
+            }
+
+            var actual = Reflect.field(parent, key);
+            if (!thx.Dynamics.equals(actual, expected)) {
+                throw 'test failed, values ($actual =/= $expected) not equivalent';
+            }
         }
 
         return data;
