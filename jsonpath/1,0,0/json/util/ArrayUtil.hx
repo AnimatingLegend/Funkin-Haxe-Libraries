@@ -12,7 +12,7 @@ class ArrayUtil {
      */
     public static function subtract<T>(list:Array<T>, subtract:Array<T>):Array<T> {
       return list.filter((item) -> {
-        var contains = thx.Arrays.containsExact(subtract, item, thx.Dynamics.equals);
+        var contains = ArrayUtil.containsExact(subtract, item, thx.Dynamics.equals);
         return !contains;
       });
     }
@@ -28,11 +28,11 @@ class ArrayUtil {
       if (a.length != b.length) return false;
       for (element in a)
       {
-        if (!thx.Arrays.containsExact(b, element, thx.Dynamics.equals)) return false;
+        if (!ArrayUtil.containsExact(b, element, thx.Dynamics.equals)) return false;
       }
       for (element in b)
       {
-        if (!thx.Arrays.containsExact(a, element, thx.Dynamics.equals)) return false;
+        if (!ArrayUtil.containsExact(a, element, thx.Dynamics.equals)) return false;
       }
       return true;
     }
@@ -45,8 +45,24 @@ class ArrayUtil {
      */
     public static function intersect<T>(list:Array<T>, intersect:Array<T>):Array<T> {
       return list.filter((item) -> {
-        var contains = thx.Arrays.containsExact(intersect, item, thx.Dynamics.equals);
+        var contains = ArrayUtil.containsExact(intersect, item, thx.Dynamics.equals);
         return contains;
       });
+    }
+
+    /**
+     * Check if an array contains an item using a custom equality function.
+     * @param array The array to search.
+     * @param item The item to search for.
+     * @param equals A function to compare two items for equality.
+     * @return True if the item is found in the array, false otherwise.
+     */
+    private static function containsExact<T>(array:Array<T>, item:T, equals:Dynamic->Dynamic->Bool):Bool {
+        for (element in array) {
+            if (equals(element, item)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -67,15 +67,12 @@ class JSONPatch {
         if (path == null) throw 'path is required';
         if (value == NoValue) throw 'value is required';
 
-        // If target is an array index, new value is inserted at that index
-        // If target specifies an object member that does not exist, a new member is added to tha tojbect
-        // If target specifies an object member that does exist, that member's value is replaced
-
         var targetPaths = parsePaths(path, data);
 
         for (targetPath in targetPaths) {
             try {
-                data.insertByPath(targetPath, value, true);
+                // Replace insertByPath with logic to add a value
+                JSONPointer.add(data, targetPath, value);
             } catch (e) {
                 if ('$e'.contains('does not exist')) {
                     throw 'add to a non-existent target';
@@ -95,18 +92,14 @@ class JSONPatch {
 
     static function applyOperation_remove(data:JSONData, path:String):JSONData {
         if (path == null) throw 'path is required';
-        // trace('Remove: Path "${path}"');
-
-        // Remove the value at the target location
-        // If target is an array index, the value is removed and other elements are shifted
 
         var targetPaths = parsePaths(path, data);
 
         for (targetPath in targetPaths) {
-            if (!data.existsByPath(targetPath)) {
+            if (!JSONPointer.exists(data, targetPath)) {
                 throw 'remove target ${targetPath} does not exist';
             }
-            data.removeByPath(targetPath);
+            JSONPointer.remove(data, targetPath);
         }
 
         return data;
@@ -116,14 +109,10 @@ class JSONPatch {
         if (path == null) throw 'path is required';
         if (value == NoValue) throw 'value is required';
 
-        // Replace the value at the target location
-        // If target is an array index, the value is replaced
-        // If target specifies an object member that does exist, that member's value is replaced
-
         var targetPaths = parsePaths(path, data);
 
         for (targetPath in targetPaths) {
-            data.setByPath(targetPath, value);
+            JSONPointer.replace(data, targetPath, value);
         }
 
         return data;
@@ -133,22 +122,18 @@ class JSONPatch {
         if (path == null) throw 'path is required';
         if (from == null) throw 'from is required';
 
-        // Get the value at the from location
-        // Then, remove the value at the from location
-        // Then, add the value at the path location
-
         var targetFromPaths = parsePaths(from, data);
         var targetPaths = parsePaths(path, data);
 
         for (targetFromPath in targetFromPaths) {
-            if (!data.existsByPath(targetFromPath)) {
+            if (!JSONPointer.exists(data, targetFromPath)) {
                 throw 'no element at from path ${targetFromPath}';
             }
 
-            var value = data.getByPath(targetFromPath);
-            data.removeByPath(targetFromPath);
+            var value = JSONPointer.get(data, targetFromPath);
+            JSONPointer.remove(data, targetFromPath);
             for (targetPath in targetPaths) {
-                data.setByPath(targetPath, value);
+                JSONPointer.add(data, targetPath, value);
             }
         }
 
@@ -159,20 +144,17 @@ class JSONPatch {
         if (path == null) throw 'path is required';
         if (from == null) throw 'from is required';
 
-        // Get the value at the from location
-        // Then, add the value at the path location
-
         var targetFromPaths = parsePaths(from, data);
         var targetPaths = parsePaths(path, data);
 
         for (targetFromPath in targetFromPaths) {
-            if (!data.existsByPath(targetFromPath)) {
+            if (!JSONPointer.exists(data, targetFromPath)) {
                 throw 'no element at from path ${targetFromPath}';
             }
 
-            var value = data.getByPath(targetFromPath);
+            var value = JSONPointer.get(data, targetFromPath);
             for (targetPath in targetPaths) {
-                data.setByPath(targetPath, value);
+                JSONPointer.add(data, targetPath, value);
             }
         }
 
@@ -183,20 +165,15 @@ class JSONPatch {
         if (path == null) throw 'path is required';
         if (expected == NoValue) throw 'value is required';
 
-        // Query the target location
-        // The value at the target location must exist and must be equal to the provided value
-        // Otherwise, an error is thrown
-
         var targetPaths = parsePaths(path, data);
 
         for (targetPath in targetPaths) {
             try {
-
-                if (!data.existsByPath(targetPath)) {
+                if (!JSONPointer.exists(data, targetPath)) {
                     throw 'test failed, target not found';
                 }
                 
-                var actual = data.getByPath(targetPath);
+                var actual = JSONPointer.get(data, targetPath);
                 
                 if (!thx.Dynamics.equals(actual, expected)) {
                     throw 'test failed, values (${actual} =/= ${expected}) not equivalent';
