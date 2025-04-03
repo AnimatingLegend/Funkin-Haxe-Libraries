@@ -1,0 +1,10 @@
+{
+	"name":"hxcs",
+	"url":"https://github.com/HaxeFoundation/hxcs",
+	"license":"Public",
+	"tags":["cs","core"],
+	"description":"Support library for the C# backend of the Haxe compiler",
+	"version":"4.2.0",
+	"releasenote":".NET 5.0 support",
+	"contributors":["waneck", "HaxeFoundation"]
+}

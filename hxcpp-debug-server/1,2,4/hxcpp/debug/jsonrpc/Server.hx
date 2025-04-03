@@ -17,7 +17,7 @@ import hxcpp.debug.jsonrpc.eval.Interp;
 import hxcpp.debug.jsonrpc.eval.Expr;
 import hxcpp.debug.jsonrpc.eval.Interp;
 
-enum abstract ScopeId(String) to String {
+@:enum abstract ScopeId(String) to String {
 	var members = "Members";
 	var locals = "Locals";
 }

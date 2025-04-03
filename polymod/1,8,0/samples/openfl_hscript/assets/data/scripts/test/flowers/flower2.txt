@@ -1,4 +1,0 @@
-function getFlowerName() {
-    trace('Flower 2!!');
-    return "sunflower2";
-}
